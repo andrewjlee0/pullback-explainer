@@ -1,0 +1,596 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>Predicting geometries from the transformer architecture</title>
+<script>
+MathJax = {tex: {inlineMath: [['$', '$']], displayMath: [['$$','$$']]}, svg: {fontCache: 'global'}};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+ body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f6f7f9;color:#1f2430;line-height:1.62}
+ .wrap{max-width:880px;margin:0 auto;padding:28px 22px 80px}
+ h1{font-size:26px;margin:10px 0 2px}
+ .byline{color:#697080;font-size:13.5px;margin-bottom:26px}
+ h2{font-size:20px;margin:44px 0 10px;padding-top:18px;border-top:2px solid #e2e5ea}
+ h3{font-size:15.5px;margin:26px 0 6px;color:#1f2430}
+ p,li{font-size:15px}
+ .lede{font-size:15.5px}
+ .card{background:#fff;border:1px solid #e2e5ea;border-radius:10px;padding:18px 22px;margin:16px 0}
+ .q{background:#eef4fb;border-left:4px solid #2b6cb0;border-radius:6px;padding:12px 16px;margin:16px 0;font-size:15px}
+ .q b{color:#1d4f8c}
+ .move{background:#f2faf8;border-left:4px solid #0d9488;border-radius:6px;padding:10px 16px;margin:14px 0;font-size:14.5px}
+ .move .tag{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.06em;color:#0b7466;text-transform:uppercase;margin-right:6px}
+ .keyresult{background:#fbf7ee;border:1px solid #e5d9b8;border-radius:8px;padding:6px 18px;margin:18px 0}
+ .aside{color:#5a6170;font-size:13.8px;background:#f2f3f6;border-radius:8px;padding:10px 16px;margin:14px 0}
+ table{border-collapse:collapse;margin:14px 0;font-size:14px}
+ th,td{border:1px solid #d7dbe2;padding:6px 12px;text-align:left}
+ th{background:#eceff4}
+ .figcap{color:#5a6170;font-size:13.5px;margin:6px 4px 0}
+ svg text{font-family:system-ui,-apple-system,sans-serif}
+ .stagechip{display:inline-block;background:#2b6cb0;color:#fff;border-radius:20px;font-size:12px;font-weight:600;padding:2px 12px;margin-right:8px;vertical-align:2px}
+ code{background:#edeff3;border-radius:4px;padding:1px 5px;font-size:13px}
+ mjx-container[display="true"]{display:block;width:max-content;max-width:calc(100vw - 40px);position:relative;left:50%;transform:translateX(-50%);overflow-x:auto;overflow-y:hidden;padding:2px 0;margin:0}
+</style></head><body><div class="wrap">
+
+
+<div data-nocomment style="max-width:820px;margin:6px auto 14px;padding:9px 14px;border:1px solid #dbe3ee;border-radius:8px;background:#f6f9fd;font-size:13px;color:#41506b">
+To comment: hover any paragraph and click the 💬 button in the margin (select text first to quote a specific sentence). It opens a prefilled GitHub comment — sign in with your GitHub account and submit. Existing comments appear as 💬 badges next to paragraphs; click a badge to read and reply.
+</div>
+<h1>To what extent can we predict representational content from the architecture of the transformer? Or, to what extent does the transformer architecture constrain what representations must be learned?</h1><div>Andrew Jun Lee</div>
+
+
+<h2>1. Goal</h2>
+
+<p class="lede">We would like to understand what trained transformers represent internally. Is it possible to determine what a transformer <i>must</i> represent at specific stages of its architecture? In other words, does the architecture impose constraints on what <i>can and cannot</i>&nbsp;be represented? In this document, I explore this possibility by identifying a constraint that the softmax imposes on the logits to determine next-token probabilities, and pulling this constraint "backward" through each computation (e.g., the unembedding, the RMSNorm, and the MLP). The hope is that the pullback to a prior stage constrains the set of possible objects that the activations at the stage could represent, of which we can then confirm or deny empirically.</p><p class="lede">Below is the architecture at the final layer and at the "readout stack." The final layer converts resid_pre into resid_mid through attention; afterward, resid_mid is converted into resid_post through the MLP. Resid_post is then converted into resid_final through a final RMSNorm, then into the logits through the unembedding, and finally the next-token probabilities (NTP) through the softmax.</p><p class="lede">(The text that follows was initially written by Claude and heavily, heavily edited by me.)</p>
+
+
+
+
+
+<div contenteditable="false"><svg viewBox="75 4 545 770" style="max-width:480px;display:block;margin:0 auto" width="100%">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 9 5 L 0 9 z" fill="#1f2937"></path>
+    </marker>
+  </defs>
+
+  <rect x="90" y="16" width="180" height="366" rx="10" fill="#ffffff" stroke="#d5d9e0"></rect>
+  <text x="104" y="40" font-size="12.5" font-weight="700" letter-spacing="1" fill="#697080">READOUT STACK</text>
+
+  <text x="180" y="66" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1f2937">NTP p</text>
+  <line x1="180" y1="98" x2="180" y2="76" stroke="#1f2937" stroke-width="2" marker-end="url(#ar)"></line>
+  <rect x="105" y="102" width="150" height="40" rx="7" fill="#eef2f7" stroke="#94a3b8"></rect>
+  <text x="180" y="127" font-size="13" text-anchor="middle" fill="#334155">softmax</text>
+  <line x1="180" y1="164" x2="180" y2="146" stroke="#1f2937" stroke-width="2" marker-end="url(#ar)"></line>
+  <text x="180" y="184" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1f2937">logits ℓ</text>
+  <line x1="180" y1="212" x2="180" y2="190" stroke="#1f2937" stroke-width="2" marker-end="url(#ar)"></line>
+  <rect x="105" y="216" width="150" height="40" rx="7" fill="#eef2f7" stroke="#94a3b8"></rect>
+  <text x="180" y="241" font-size="13" text-anchor="middle" fill="#334155">unembedding</text>
+  <line x1="180" y1="278" x2="180" y2="260" stroke="#1f2937" stroke-width="2" marker-end="url(#ar)"></line>
+  <text x="180" y="296" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1f2937">resid_final</text>
+  <line x1="180" y1="324" x2="180" y2="302" stroke="#1f2937" stroke-width="2" marker-end="url(#ar)"></line>
+  <rect x="105" y="328" width="150" height="40" rx="7" fill="#eef2f7" stroke="#94a3b8"></rect>
+  <text x="180" y="353" font-size="13" text-anchor="middle" fill="#334155">RMSNorm</text>
+
+  <line x1="180" y1="454" x2="180" y2="372" stroke="#1f2937" stroke-width="2.5" marker-end="url(#ar)"></line>
+
+  <rect x="100" y="410" width="500" height="352" rx="10" fill="#ffffff" stroke="#d5d9e0"></rect>
+  <text x="114" y="434" font-size="12.5" font-weight="700" letter-spacing="1" fill="#697080">FINAL LAYER</text>
+  <text x="222" y="434" font-size="12" fill="#9aa1ad">(every layer has this same shape)</text>
+
+  <text x="180" y="468" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1f2937">resid_post</text>
+  <line x1="180" y1="505" x2="180" y2="478" stroke="#1f2937" stroke-width="2.5" marker-end="url(#ar)"></line>
+  <circle cx="180" cy="518" r="13" fill="#fff" stroke="#1f2937" stroke-width="2"></circle>
+  <text x="180" y="523.5" font-size="16" font-weight="600" text-anchor="middle" fill="#1f2937">+</text>
+  <line x1="180" y1="588" x2="180" y2="535" stroke="#1f2937" stroke-width="2.5" marker-end="url(#ar)"></line>
+  <text x="180" y="602" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1f2937">resid_mid</text>
+  <line x1="180" y1="639" x2="180" y2="612" stroke="#1f2937" stroke-width="2.5" marker-end="url(#ar)"></line>
+  <circle cx="180" cy="652" r="13" fill="#fff" stroke="#1f2937" stroke-width="2"></circle>
+  <text x="180" y="657.5" font-size="16" font-weight="600" text-anchor="middle" fill="#1f2937">+</text>
+  <line x1="180" y1="722" x2="180" y2="669" stroke="#1f2937" stroke-width="2.5" marker-end="url(#ar)"></line>
+  <text x="180" y="736" font-size="14.5" font-weight="600" text-anchor="middle" fill="#1f2937">resid_pre</text>
+
+  <circle cx="180" cy="697" r="4" fill="#1f2937"></circle>
+  <path d="M 180 697 L 235 697" stroke="#1f2937" stroke-width="2" fill="none" marker-end="url(#ar)"></path>
+  <rect x="238" y="677" width="100" height="40" rx="7" fill="#eef2f7" stroke="#94a3b8"></rect>
+  <text x="288" y="702" font-size="13" text-anchor="middle" fill="#334155">RMSNorm</text>
+  <path d="M 338 697 L 408 697" stroke="#1f2937" stroke-width="2" fill="none" marker-end="url(#ar)"></path>
+  <text x="373" y="687" font-size="12.5" text-anchor="middle" fill="#5a6170">attn_in</text>
+  <rect x="411" y="677" width="100" height="40" rx="7" fill="#eef2f7" stroke="#94a3b8"></rect>
+  <text x="461" y="702" font-size="13" text-anchor="middle" fill="#334155">attention</text>
+  <path d="M 511 697 L 560 697 L 560 652 L 196 652" stroke="#1f2937" stroke-width="2" fill="none" marker-end="url(#ar)"></path>
+  <text x="380" y="644" font-size="12.5" text-anchor="middle" fill="#5a6170">attn_out</text>
+
+  <circle cx="180" cy="563" r="4" fill="#1f2937"></circle>
+  <path d="M 180 563 L 235 563" stroke="#1f2937" stroke-width="2" fill="none" marker-end="url(#ar)"></path>
+  <rect x="238" y="543" width="100" height="40" rx="7" fill="#eef2f7" stroke="#94a3b8"></rect>
+  <text x="288" y="568" font-size="13" text-anchor="middle" fill="#334155">RMSNorm</text>
+  <path d="M 338 563 L 408 563" stroke="#1f2937" stroke-width="2" fill="none" marker-end="url(#ar)"></path>
+  <text x="373" y="553" font-size="12.5" text-anchor="middle" fill="#5a6170">mlp_in</text>
+  <rect x="411" y="543" width="100" height="40" rx="7" fill="#eef2f7" stroke="#94a3b8"></rect>
+  <text x="461" y="568" font-size="13" text-anchor="middle" fill="#334155">MLP</text>
+  <path d="M 511 563 L 560 563 L 560 518 L 196 518" stroke="#1f2937" stroke-width="2" fill="none" marker-end="url(#ar)"></path>
+  <text x="380" y="510" font-size="12.5" text-anchor="middle" fill="#5a6170">mlp_out</text></svg></div><h2>2. The predictive subspace in logit space</h2>
+
+<p>After training, the model's NTP (written as&nbsp;$p$) is close to the correct Bayes-optimal one. The NTP are computed by softmaxing the logits:</p>
+$$p = \mathrm{softmax}(\ell), \qquad p_i = \frac{e^{\ell_i}}{\sum_j e^{\ell_j}}.$$
+<p>where $V$ is the vocabulary size, and $i$ and $j$ index $V$.</p><p>What does knowing $p$ force about the logits $\ell$? The goal of this section is a decomposition of logit space: one direction that cannot matter for the NTP at all, and a $(V-1)$-dimensional subspace on which the logits must be the centered log-NTP, an object 2.2 defines.</p>
+
+<h3>2.1 Shift invariance</h3><div>We first solve for logit $\ell_i$:</div>
+$$\begin{aligned}
+p_i &amp;= \frac{e^{\ell_i}}{Z}, \qquad Z = \sum_j e^{\ell_j} &amp;&amp; [\text{definition}]\\[2pt]
+\log p_i &amp;= \ell_i - \log Z &amp;&amp; [\text{take logs}]\\[2pt]
+\ell_i &amp;= \log p_i + \log Z &amp;&amp; [\text{rearrange}]
+\end{aligned}$$
+<p>Here $\log Z$ is a single number, shared by all $V$ logits. Knowing $p$ therefore determines what each logit must be up to an unknown constant $c$:</p>
+$$\ell = \log p + c\,\mathbf{1}, \qquad c \text{ unknown}, \quad \mathbf{1}=(1,\dots,1).$$
+
+<p><span style="font-weight: 400; font-size: 15px;">Could the logits prefer some particular constant&nbsp;</span>$c$<span style="font-weight: 400; font-size: 15px;">? We can check that no value is preferred by shifting all the logits by the constant </span>$c$<span style="font-weight: 400; font-size: 15px;">:</span></p>
+$$\frac{e^{\ell_i + c}}{\sum_j e^{\ell_j + c}} = \frac{e^{c}\, e^{\ell_i}}{e^{c} \sum_j e^{\ell_j}} = \frac{e^{\ell_i}}{\sum_j e^{\ell_j}} = p_i.$$
+<p>The factor $e^c$ cancels top and bottom, and NTP is unchanged. So the NTP alone cannot distinguish whether the logits should have one $c$ or another. But perhaps the loss selects a particular $c$ even though the NTP do not. We can check this by computing the loss with and without shifting the logits: $L$ and $L_{\text{shifted}}$.</p>
+<p>The loss at one position is the cross-entropy, $L = -\log p_y$, where $y$ is the correct next-token. Using $\log p_y = \ell_y - \log Z$ from 2.1:</p>
+$$L = -\ell_y + \log Z.$$
+<p>Now, we add the same constant $c$ to every logit, substitute the shifted logits into the loss, and simplify:</p>
+$$\begin{aligned}
+L_{\text{shifted}} &amp;= -(\ell_y + c) + \log \sum_j e^{\ell_j + c} &amp;&amp; [\text{substitute } \ell_i \to \ell_i + c]\\[2pt]
+&amp;= -\ell_y - c + \log\Big(e^{c}\sum_j e^{\ell_j}\Big) &amp;&amp; [\text{factor } e^c \text{ out of the sum}]\\[2pt]
+&amp;= -\ell_y - c + c + \log \sum_j e^{\ell_j} &amp;&amp; [\log \text{ of a product}]\\[2pt]
+&amp;= -\ell_y + \log Z \;=\; L. &amp;&amp; [\text{the } c\text{'s cancel; definition of } Z]
+\end{aligned}$$
+<p>In brief, because the $-c$ from the first term cancels the $+c$ from the second, the loss comes out as the same number for every choice of $c$. A quantity that does not change the loss does not receive a gradient, so training exerts no pressure on $c$. In other words, moving the whole logit vector along $\mathbf 1$ does not change the NTP or the loss.</p>
+<p>The claim so far is that the constant-shift part of the logits is not determined, and the constant can differ at every token position. The model is free to represent anything along $\mathbf 1$, as long as it represents log-NTP in the rest (because $\ell_i = \log p_i + \log Z$). The representation that the logits must carry is therefore log-NTP, up to a constant shift.</p>
+<p>To see this freedom concretely, I use a Mess3 process, whose vocabulary has $V=3$ tokens so that logit space is three-dimensional and can be drawn directly. Each point below is the logit vector at one token position, one for every history of the process. Each panel makes a different choice of the constants, so the four geometries look different, yet they differ only along $\mathbf 1$ and therefore produce exactly the same NTPs at every position.</p>
+
+<div contenteditable="false" id="logitfig" style="max-width:720px;height:640px;margin:10px auto"></div>
+
+<script>
+(function(){
+  function draw(){
+    if(!window.Plotly){ setTimeout(draw,300); return; }
+    const x=0.05, a=0.85;
+    const T=[[1-2*x,x,x],[x,1-2*x,x],[x,x,1-2*x]];
+    const E=[[a,(1-a)/2,(1-a)/2],[(1-a)/2,a,(1-a)/2],[(1-a)/2,(1-a)/2,a]];
+    function step(b,z){
+      const nb=[0,0,0];
+      for(let j=0;j<3;j++){ let s=0; for(let i=0;i<3;i++) s+=b[i]*T[i][j]; nb[j]=s*E[j][z]; }
+      const t=nb[0]+nb[1]+nb[2]; return [nb[0]/t,nb[1]/t,nb[2]/t];
+    }
+    function ntp(b){
+      const p=[0,0,0];
+      for(let z=0;z<3;z++){ let s=0; for(let i=0;i<3;i++) for(let j=0;j<3;j++) s+=b[i]*T[i][j]*E[j][z]; p[z]=s; }
+      return p;
+    }
+    let frontier=[[1/3,1/3,1/3]]; const beliefs=[[1/3,1/3,1/3]];
+    for(let d=0;d<8;d++){
+      const next=[];
+      for(const b of frontier) for(let z=0;z<3;z++){ const nb=step(b,z); next.push(nb); beliefs.push(nb); }
+      frontier=next;
+    }
+    let seed=42; function rnd(){ seed=(seed*16807)%2147483647; return seed/2147483647; }
+    const flat=[], raw=[], common=[], rand=[];
+    for(const b of beliefs){
+      const p=ntp(b), lp=p.map(Math.log), m=(lp[0]+lp[1]+lp[2])/3;
+      const u=lp.map(v=>v-m);
+      flat.push(u); raw.push(lp);
+      common.push(u.map(v=>v+1.6));
+      const eta=2.4*(rnd()-0.5);
+      rand.push(u.map(v=>v+eta));
+    }
+    function panel(pts,color,sc){
+      return [
+        {type:"scatter3d",mode:"lines",scene:sc,showlegend:false,hoverinfo:"skip",
+         x:[-3,3],y:[-3,3],z:[-3,3],line:{color:"#1f2937",width:3,dash:"dash"}},
+        {type:"scatter3d",mode:"markers",scene:sc,showlegend:false,hoverinfo:"skip",
+         x:pts.map(q=>q[0]),y:pts.map(q=>q[1]),z:pts.map(q=>q[2]),
+         marker:{size:1.4,color:color,opacity:0.75}},
+        {type:"scatter3d",mode:"markers",scene:sc,showlegend:false,hoverinfo:"skip",
+         x:[0],y:[0],z:[0],marker:{size:4.5,color:"#000",symbol:"diamond"}}
+      ];
+    }
+    const traces=[].concat(
+      panel(flat,"#2b6cb0","scene"),
+      panel(common,"#0d9488","scene2"),
+      panel(raw,"#b7791f","scene3"),
+      panel(rand,"#9aa1ad","scene4"));
+    function sc(xd,yd){
+      const ax={visible:false,range:[-3.4,3.4]};
+      return {domain:{x:xd,y:yd},aspectmode:"cube",xaxis:ax,yaxis:ax,zaxis:ax,
+              camera:{eye:{x:1.55,y:-0.22,z:0.66},up:{x:0.577,y:0.577,z:0.577}}};
+    }
+    function lab(t,xx,yy){ return {text:t,x:xx,y:yy,xref:"paper",yref:"paper",
+      xanchor:"center",yanchor:"top",showarrow:false,font:{size:12.5,color:"#1f2430"}}; }
+    Plotly.newPlot("logitfig",traces,{
+      margin:{l:0,r:0,t:22,b:0},showlegend:false,
+      scene:sc([0,0.5],[0.52,1]), scene2:sc([0.5,1],[0.52,1]),
+      scene3:sc([0,0.5],[0,0.48]), scene4:sc([0.5,1],[0,0.48]),
+      annotations:[
+        lab("centered log-NTP (shift 0)",0.25,1.0),
+        lab("one common shift",0.75,1.0),
+        lab("raw log-NTP (shift \u2212log Z)",0.25,0.49),
+        lab("random shift at every position",0.75,0.49)]},
+      {displayModeBar:false});
+  }
+  draw();
+})();
+</script>
+
+<h3>2.2 Predictive subspace</h3>
+<p>How many dimensions does log-NTP have? $p$ has $V$ entries and one constraint, $p_1 + \cdots + p_V = 1$, so it has $V-1$ degrees of freedom. Taking the log is a one-to-one relabeling of each entry, which neither adds nor removes degrees of freedom. So log-NTP is conceptually $(V-1)$-dimensional because the NTP has $V-1$ dimensions. (The orange panel above does show a curved raw log-NTP curving, but this is not an extra dimension.) This conclusion can also be arrived at by recognizing that the subspace that matters for the NTP must be orthogonal to the $\mathbf 1$ direction, which is a 1 dimensional subspace. Therefore, this subspace must be $V-1$. We call this the <b>predictive subspace.</b></p>
+<p>The predictive subspace is the set of vectors orthogonal to $\mathbf 1$. As a linear subspace, its vectors pass through the origin. A basis for it is any $V-1$ independent directions orthogonal to $\mathbf 1$. The directions themselves are not determined, since rotating a basis within the&nbsp;$V-1$&nbsp;subspace gives an equally valid basis. This is fine! The well-defined objects are the plane itself and the projection onto it, and the projection needs no basis because, critically, removing the $\mathbf 1$-component of a vector is just subtracting its mean, $v \mapsto v - \bar v\,\mathbf 1$.</p>
+<p>The predictive subspace does not contain the literal log-NTP. Its entries are all negative and their mean varies across positions, which is the raw log-NTP panel of the figure. To land the content in the plane, we project it by centering it. The result is the centered log-NTP.&nbsp;Its entries sum to zero by construction:</p>
+$$\sum_i \big(\log p_i - \overline{\log p}\big) \;=\; \sum_i \log p_i \;-\; V\,\overline{\log p} \;=\; 0.$$
+<p>So the centered log-NTP is the representative of "log-NTP up to a constant shift" that lives in the predictive subspace, which forms the blue geometry above in 2.1.&nbsp;</p>
+<p>The centered log-NTP are defined as:</p>
+$$\begin{aligned}
+\bar\ell &amp;= \overline{\log p} + c &amp;&amp; [\text{average both sides}]\\[2pt]
+\ell_i - \bar\ell &amp;= \log p_i - \overline{\log p}. &amp;&amp; [\text{subtract; } c \text{ cancels}]
+\end{aligned}$$
+<p><br></p>
+
+<h2>3. Pullback of the predictive subspace into resid_final through the unembedding</h2>
+
+<p>To compute the logits, resid_final $\in\mathbb{R}^{d}$&nbsp;is passed through the unembedding, which is a linear map and a bias:</p>
+$$\ell = \text{resid_final}\;W_U + b_U, \qquad \ell_i = \text{resid_final}\cdot u_i + b_i,$$
+<p>where $u_i\in\mathbb{R}^{d}$ is the $i$-th column of $W_U$, $b_i$ is the $i$-th entry of the bias, and $d$ is the dimension of the residual stream.&nbsp;</p><p>Section 2 forced the content of the logits on the predictive subspace. resid_final sits one step earlier, so we would like the analogous statement one step back: what subspace of resid_final does that content depend on, and what must resid_final equal along them? To answer both questions, we rewrite the conclusion of 2.2 as:</p>
+$$\begin{aligned}
+\ell_i - \bar\ell &amp;= \text{resid_final}\cdot u_i + b_i - \frac{1}{V}\sum_j \big(\text{resid_final}\cdot u_j + b_j\big) &amp;&amp; [\text{substitute}]\\[2pt]
+&amp;= \text{resid_final}\cdot\Big(u_i - \bar u\Big) + \big(b_i - \bar b\big), \qquad \bar u = \frac{1}{V}\sum_j u_j, \quad \bar b = \frac{1}{V}\sum_j b_j. &amp;&amp; [\text{dot products are linear}]
+\end{aligned}$$
+
+<p>The simplified equation says that the predictive subspace obtains its content from resid_final by reading it along the centered unembedding directions $u_i - \bar u$, plus a constant. So the content of the predictive subspace is determined by the part of resid_final along the centered unembedding directions. Their span is the subspace of resid_final that determines the prediction, and we could call it the <b>unembedding-predictive subspace</b>.</p>
+
+<p>Any movement of resid_final orthogonal to the unembedding-predictive subspace does not change the dot products in the equation above. Therefore, the NTP cannot change. This is analogous to the $\mathbf 1$ direction from 2.1, except that the free subspace here has $d-(V-1)$ dimensions, where $d$ greatly exceeds $V$.</p>
+<p>How large is the unembedding-predictive subspace? The centered unembedding directions sum to 0,&nbsp;$\sum_i (u_i - \bar u) = \sum_i u_i - V\bar u = 0$, so they are linearly dependent and span at most $V-1$ dimensions. The dimension equals $V-1$ exactly when this is their only linear relation, which requires $d \ge V-1$. One difference from the predictive subspace of 2.2 is worth noting. There, no preferred basis existed and none was needed. Here, the architecture hands us specific spanning directions, the $u_i - \bar u$, read directly off the model's own trained weights: no probe is fitted and no new parameters are introduced.</p>
+<p>What representation must live in this subspace? For each centered unembedding direction, its dot product with resid_final is forced to equal the $i$-th entry of the centered log-NTP, minus the fixed number $b_i - \bar b$ from the equation above. This bias correction translates the whole picture by one fixed vector and does nothing else, and its entries are of order $10^{-2}$ in our models, so I keep it implicit in what follows. The $V$ centered directions carry one redundancy (they sum to 0), so keep any $V-1$ of them; the dropped one adds nothing, since its reading is minus the sum of the others. If these $V-1$ directions were perpendicular unit axes (an orthonormal basis of the subspace), dot products would be coordinates, and resid_final would contain the blue, centered log-NTP geometry of 2.1 exactly, with its lengths and angles. But they are not necessarily; they can be directions of arbitrary lengths and angles.&nbsp;</p><p>However, any independent set of directions is just perpendicular unit axes pushed through one fixed invertible linear map. I will call such a map a "shear" from here on, loosely, and this can include rotations, expansions, and stretches, like the panels of the figure below. Reading the same forced numbers off sheared axes "draws" the same picture, sheared. So the geometry of resid_final in this subspace must be the blue geometry of 2.1 up to a shear, and its representation is a <b>sheared, centered log-NTP.</b>&nbsp;</p>
+
+<div contenteditable="false" id="shearfig" style="max-width:720px;height:340px;margin:10px auto"></div>
+<script>
+(function(){
+  function draw(){
+    if(!window.Plotly){ setTimeout(draw,300); return; }
+    const x=0.05, a=0.85;
+    const T=[[1-2*x,x,x],[x,1-2*x,x],[x,x,1-2*x]];
+    const E=[[a,(1-a)/2,(1-a)/2],[(1-a)/2,a,(1-a)/2],[(1-a)/2,(1-a)/2,a]];
+    function step(b,z){
+      const nb=[0,0,0];
+      for(let j=0;j<3;j++){ let t=0; for(let i=0;i<3;i++) t+=b[i]*T[i][j]; nb[j]=t*E[j][z]; }
+      const t=nb[0]+nb[1]+nb[2]; return [nb[0]/t,nb[1]/t,nb[2]/t];
+    }
+    function ntp(b){
+      const p=[0,0,0];
+      for(let z=0;z<3;z++){ let t=0; for(let i=0;i<3;i++) for(let j=0;j<3;j++) t+=b[i]*T[i][j]*E[j][z]; p[z]=t; }
+      return p;
+    }
+    let frontier=[[1/3,1/3,1/3]]; const beliefs=[[1/3,1/3,1/3]];
+    for(let d=0;d<8;d++){
+      const next=[];
+      for(const b of frontier) for(let z=0;z<3;z++){ const nb=step(b,z); next.push(nb); beliefs.push(nb); }
+      frontier=next;
+    }
+    const e1=[1/Math.sqrt(2),-1/Math.sqrt(2),0], e2=[1/Math.sqrt(6),1/Math.sqrt(6),-2/Math.sqrt(6)];
+    const q=[];
+    for(const b of beliefs){
+      const pr=ntp(b), lp=pr.map(Math.log), m=(lp[0]+lp[1]+lp[2])/3;
+      const u=lp.map(v=>v-m);
+      q.push([u[0]*e1[0]+u[1]*e1[1]+u[2]*e1[2], u[0]*e2[0]+u[1]*e2[1]+u[2]*e2[2]]);
+    }
+    const base=q.map(v=>[v[0], v[1], 0]);
+    const grown=q.map(v=>[1.8*v[0], 1.8*v[1], 0]);
+    const k=2.2, dx=Math.SQRT1_2, dy=Math.SQRT1_2;
+    const tilted=q.map(v=>{ const t=(k-1)*(v[0]*dx+v[1]*dy); return [v[0]+t*dx, v[1]+t*dy, 0]; });
+    function panel(pts,sc){
+      return [
+        {type:"scatter3d",mode:"markers",scene:sc,showlegend:false,hoverinfo:"skip",
+         x:pts.map(p2=>p2[0]),y:pts.map(p2=>p2[1]),z:pts.map(p2=>p2[2]),
+         marker:{size:1.4,color:"#2b6cb0",opacity:0.75}},
+        {type:"scatter3d",mode:"markers",scene:sc,showlegend:false,hoverinfo:"skip",
+         x:[0],y:[0],z:[0],marker:{size:4.5,color:"#000",symbol:"diamond"}}
+      ];
+    }
+    const traces=[].concat(panel(base,"scene"),panel(grown,"scene2"),panel(tilted,"scene3"));
+    function sc(xd){
+      const ax={visible:false,range:[-3.6,3.6]};
+      return {domain:{x:xd,y:[0,0.94]},aspectmode:"cube",xaxis:ax,yaxis:ax,zaxis:ax,
+              camera:{eye:{x:0,y:0,z:2.0},up:{x:0,y:1,z:0}}};
+    }
+    function lab(t,xx){ return {text:t,x:xx,y:1.0,xref:"paper",yref:"paper",
+      xanchor:"center",yanchor:"top",showarrow:false,font:{size:12,color:"#1f2430"}}; }
+    Plotly.newPlot("shearfig",traces,{
+      margin:{l:0,r:0,t:18,b:0},showlegend:false,
+      scene:sc([0,0.333]), scene2:sc([0.334,0.666]), scene3:sc([0.667,1]),
+      annotations:[
+        lab("centered log-NTP",0.17),
+        lab("expanded",0.5),
+        lab("stretched at 45\u00b0",0.83)]},
+      {displayModeBar:false});
+  }
+  draw();
+})();
+</script>
+
+
+
+<h2>4. Pullback of unembedding-predictive into the final layer's resid_post through the final RMSNorm</h2>
+
+<p>To compute resid_final, the final layer's resid_post is passed through the final RMSNorm:</p>
+$$\text{resid_final} = \gamma \odot \frac{\text{resid_post}}{\text{RMS}(\text{resid_post})}, \qquad \text{RMS}(\text{resid_post}) = \sqrt{\tfrac{1}{d}\textstyle\sum_k \text{resid_post}_k^2} \qquad (\odot \text{ means elementwise product}).$$
+<p>where $\gamma$ is a learned vector that elementwise scales, and RMS is the L2 norm of a vector divided by $\sqrt{d}$.</p><p>We can perform a similar substitution as the previous section, continuing the same chain:</p>
+$$\begin{aligned}
+\ell_i - \bar\ell &amp;= \text{resid_final}\cdot(u_i - \bar u) + \big(b_i - \bar b\big) &amp;&amp; [\text{conclusion of Section 3}]\\[2pt]
+&amp;= \left(\gamma \odot \frac{\text{resid_post}}{\text{RMS}(\text{resid_post})}\right)\cdot(u_i - \bar u) + \big(b_i - \bar b\big) &amp;&amp; [\text{substitute the RMSNorm}]\\[2pt]
+&amp;= \frac{\big(\gamma\odot(u_i-\bar u)\big)\cdot \text{resid_post}}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big). &amp;&amp; [\text{regroup: move } \gamma \text{ onto the direction}]
+\end{aligned}$$
+<p>The simplified equation says that the predictive content is obtained from resid_post by reading it along the directions $\gamma\odot(u_i-\bar u)$, divided by one per-position number, plus a constant. These directions are the centered unembedding directions bent elementwise by $\gamma$. The bend adds a second shear: in Section 3, reading along the skewed unembedding directions already sheared the picture once, and $\gamma$ bends those directions further. Both distortions are fixed, and they combine into one fixed linear map, so the representation read here is a <b>twice-sheared centered log-NTP</b><b>, but importantly, scaled at each position by that position's RMS.</b> We could call the span of these directions the <b>gamma-unembedding-predictive subspace</b>. The name is getting long and kind of pretentious...</p>
+<p>The RMS-scaling per token position complicates the geometry that we will see. Across token positions, the magnitude of resid_post can differ, so its RMS can differ. In other words, RMS is "idiosyncratic" to token positions, and it cannot be abstracted into a single global shear. This implies that the gamma-unembedding-predictive subspace will not have literally a twice-sheared centered log-NTP, but this geometry whose individual points have varying magnitudes. To be precise, all $V$ dot products&nbsp;$\big(\gamma\odot(u_i-\bar u)\big)\cdot\text{resid_post}$ at a token position (of which $V-1$ are independent, since the directions sum to 0) are divided by an RMS number. Dividing a vector by a number changes its length, not its direction. So at each position, the direction remains the same as the twice-sheared centered log-NTP&nbsp;-- but its length can change. (Dividing each vector in the subspace by its token position's RMS removes the stretches and gives back the twice-sheared centered log-NTP geometry.)</p>
+<p>To say precisely which parts of resid_post the constraint touches, split resid_post into its component inside the gamma-unembedding-predictive subspace and its component in the orthogonal complement:</p>
+$$\text{resid_post} = p + q, \qquad p \in \text{span}\{\gamma\odot(u_i-\bar u)\}, \qquad q \perp \text{span}\{\gamma\odot(u_i-\bar u)\}.$$
+<p>Every dot product in the chain reads only $p$. Showing each step, starting from this section's conclusion:</p>
+$$\begin{aligned}
+\ell_i - \bar\ell &amp;= \frac{\big(\gamma\odot(u_i-\bar u)\big)\cdot \text{resid_post}}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big) &amp;&amp; [\text{conclusion of this section}]\\[2pt]
+&amp;= \frac{\big(\gamma\odot(u_i-\bar u)\big)\cdot (p+q)}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big) &amp;&amp; [\text{substitute } \text{resid_post} = p+q]\\[2pt]
+&amp;= \frac{\big(\gamma\odot(u_i-\bar u)\big)\cdot p \,+\, \big(\gamma\odot(u_i-\bar u)\big)\cdot q}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big) &amp;&amp; [\text{dot product distributes over the sum}]\\[2pt]
+&amp;= \frac{\big(\gamma\odot(u_i-\bar u)\big)\cdot p}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big) &amp;&amp; [\big(\gamma\odot(u_i-\bar u)\big)\cdot q = 0:\ q \text{ is orthogonal to the subspace}]
+\end{aligned}$$
+<p>Next, rewrite the denominator in terms of $p$ and $q$:</p>
+$$\begin{aligned}
+\text{RMS}(\text{resid_post}) &amp;= \frac{\lVert \text{resid_post}\rVert}{\sqrt d} &amp;&amp; [\text{definition of RMS}]\\[4pt]
+\lVert \text{resid_post}\rVert^2 &amp;= \lVert p+q\rVert^2 = \lVert p\rVert^2 + 2\,p\cdot q + \lVert q\rVert^2 &amp;&amp; [\text{expand the square}]\\[2pt]
+&amp;= \lVert p\rVert^2 + \lVert q\rVert^2 &amp;&amp; [p\cdot q = 0]\\[4pt]
+\text{so}\quad \text{RMS}(\text{resid_post}) &amp;= \sqrt{\big(\lVert p\rVert^2 + \lVert q\rVert^2\big)/d}. &amp;&amp;
+\end{aligned}$$
+<p>Substituting this denominator back into the chain:</p>
+$$\ell_i - \bar\ell = \frac{\big(\gamma\odot(u_i-\bar u)\big)\cdot p}{\sqrt{\big(\lVert p\rVert^2 + \lVert q\rVert^2\big)/d}} + \big(b_i-\bar b\big).$$
+<p>The figure below shows this using the running Mess3 example. Each blue point is one token position's $p$, assuming no twice-shear at all -- so the in-subspace geometry is just the centered log-NTP in this hypothetical. Each red point is the same position's $q$. The constraint never sees $q$'s direction, so the directions drawn are arbitrary; only $q$'s magnitude enters, through the denominator above. At the slider's zero position, the whole resid_post has the same length at every position -- resid_post lies on a shell -- so $q$'s length is $\sqrt{R^2-\lVert p\rVert^2}$, largest exactly where the answer content is smallest. Dragging the slider assigns each position its own random factor, applied to $p$ and $q$ jointly -- each blue point slides along its ray through the origin, and its red point slides in lockstep, so the pinned ratio between them never changes. The directions do not move. In a trained model these common factors are not random, of course -- they are the actual overall scales of resid_post -- but every cloud along the slider is permitted by the constraint. Basically, sliding back to zero is what the final RMSNorm does.</p>
+<div contenteditable="false" style="max-width:980px;margin:10px auto">
+<div style="display:flex;gap:8px;justify-content:center">
+<div style="flex:1;min-width:0"><div id="rayfig" style="height:440px"></div><div style="text-align:center;font-size:12.5px;color:#5a6170">$p$ — component in the subspace (directions forced)</div></div>
+<div style="flex:1;min-width:0"><div id="qfig" style="height:440px"></div><div style="text-align:center;font-size:12.5px;color:#5a6170">$q$ — orthogonal complement (directions arbitrary)</div></div>
+</div>
+<div style="display:flex;align-items:center;gap:10px;justify-content:center;font-size:13px;color:#5a6170">
+<span>per-position RMS spread (random)</span>
+<input id="raySlider" type="range" min="0" max="100" value="0" style="width:260px">
+</div>
+
+
+</div>
+<script>
+(function(){
+  function draw(){
+    if(!window.Plotly){ setTimeout(draw,300); return; }
+    const x=0.05, a=0.85;
+    const T=[[1-2*x,x,x],[x,1-2*x,x],[x,x,1-2*x]];
+    const E=[[a,(1-a)/2,(1-a)/2],[(1-a)/2,a,(1-a)/2],[(1-a)/2,(1-a)/2,a]];
+    function step(b,z){
+      const nb=[0,0,0];
+      for(let j=0;j<3;j++){ let t=0; for(let i=0;i<3;i++) t+=b[i]*T[i][j]; nb[j]=t*E[j][z]; }
+      const t=nb[0]+nb[1]+nb[2]; return [nb[0]/t,nb[1]/t,nb[2]/t];
+    }
+    function ntp(b){
+      const p2=[0,0,0];
+      for(let z=0;z<3;z++){ let t=0; for(let i=0;i<3;i++) for(let j=0;j<3;j++) t+=b[i]*T[i][j]*E[j][z]; p2[z]=t; }
+      return p2;
+    }
+    let frontier=[[1/3,1/3,1/3]]; const beliefs=[[1/3,1/3,1/3]];
+    for(let d=0;d<8;d++){
+      const next=[];
+      for(const b of frontier) for(let z=0;z<3;z++){ const nb=step(b,z); next.push(nb); beliefs.push(nb); }
+      frontier=next;
+    }
+    const e1=[1/Math.sqrt(2),-1/Math.sqrt(2),0], e2=[1/Math.sqrt(6),1/Math.sqrt(6),-2/Math.sqrt(6)];
+    const qx=[], qy=[];
+    for(const b of beliefs){
+      const pr=ntp(b), lp=pr.map(Math.log), m=(lp[0]+lp[1]+lp[2])/3;
+      const u=lp.map(v=>v-m);
+      qx.push(u[0]*e1[0]+u[1]*e1[1]+u[2]*e1[2]);
+      qy.push(u[0]*e2[0]+u[1]*e2[1]+u[2]*e2[2]);
+    }
+    let seed=7; function rnd(){ seed=(seed*16807)%2147483647; return seed/2147483647; }
+    const zf=qx.map(()=>{ let v=(rnd()+rnd()+rnd()+rnd()-2)*1.4; return Math.max(-1.6,Math.min(1.6,v)); });
+    const n=qx.length;
+    const rayIdx=[]; for(let i=0;i<n;i+=Math.floor(n/48)) rayIdx.push(i);
+    const rays=rayIdx.map(i=>{ const L2=Math.hypot(qx[i],qy[i])||1e-9, f=2.6/Math.max(L2,0.6);
+      return {type:"scatter3d",mode:"lines",showlegend:false,hoverinfo:"skip",
+        x:[0,qx[i]*f],y:[0,qy[i]*f],z:[0,0],opacity:0.25,line:{color:"#e4e7ec",width:1.5}}; });
+    const pts={type:"scatter3d",mode:"markers",showlegend:false,hoverinfo:"skip",
+      x:qx.slice(),y:qy.slice(),z:qx.map(()=>0),marker:{size:1.5,color:"#2b6cb0",opacity:0.75}};
+    const orig={type:"scatter3d",mode:"markers",showlegend:false,hoverinfo:"skip",
+      x:[0],y:[0],z:[0],marker:{size:4.5,color:"#000",symbol:"diamond"}};
+    const ax={visible:false,range:[-4.2,4.2]};
+    Plotly.newPlot("rayfig",[...rays,pts,orig],{
+      margin:{l:0,r:0,t:6,b:0},showlegend:false,
+      scene:{aspectmode:"cube",xaxis:ax,yaxis:ax,zaxis:ax,
+             camera:{eye:{x:0,y:0,z:1.9},up:{x:0,y:1,z:0}}}},
+      {displayModeBar:false});
+    // ---- q panel: same positions, arbitrary fixed directions, magnitudes locked to the same per-position factor
+    const qdx=new Array(n), qdy=new Array(n), qdz=new Array(n);
+    let pmax=0; for(let i=0;i<n;i++) pmax=Math.max(pmax,Math.hypot(qx[i],qy[i]));
+    const Rsh=1.1*pmax;
+    for(let i=0;i<n;i++){
+      let gx=rnd()*2-1, gy=rnd()*2-1, gz=rnd()*2-1;
+      const L=Math.hypot(gx,gy,gz)||1e-9;
+      const ql=Math.sqrt(Math.max(Rsh*Rsh-(qx[i]*qx[i]+qy[i]*qy[i]),0));
+      qdx[i]=gx/L*ql; qdy[i]=gy/L*ql; qdz[i]=gz/L*ql;
+    }
+    const qrays=rayIdx.map(i=>({type:"scatter3d",mode:"lines",showlegend:false,hoverinfo:"skip",
+        x:[0,qdx[i]*1.8],y:[0,qdy[i]*1.8],z:[0,qdz[i]*1.8],opacity:0.25,line:{color:"#e4e7ec",width:1.5}}));
+    const qpts={type:"scatter3d",mode:"markers",showlegend:false,hoverinfo:"skip",
+      x:qdx.slice(),y:qdy.slice(),z:qdz.slice(),marker:{size:1.5,color:"#b02b2b",opacity:0.75}};
+    const qorig={type:"scatter3d",mode:"markers",showlegend:false,hoverinfo:"skip",
+      x:[0],y:[0],z:[0],marker:{size:4.5,color:"#000",symbol:"diamond"}};
+    Plotly.newPlot("qfig",[...qrays,qpts,qorig],{
+      margin:{l:0,r:0,t:6,b:0},showlegend:false,
+      scene:{aspectmode:"cube",xaxis:ax,yaxis:ax,zaxis:ax,
+             camera:{eye:{x:1.15,y:0.6,z:1.15},up:{x:0,y:1,z:0}}}},
+      {displayModeBar:false});
+    const slider=document.getElementById("raySlider");
+    let pending=false;
+    slider.addEventListener("input",function(){
+      if(pending) return; pending=true;
+      requestAnimationFrame(function(){
+        pending=false;
+        const sg=0.55*slider.value/100;
+        const fx=new Array(n), fy=new Array(n);
+        const gx2=new Array(n), gy2=new Array(n), gz2=new Array(n);
+        for(let i=0;i<n;i++){
+          const f=Math.exp(sg*zf[i]);
+          fx[i]=qx[i]*f; fy[i]=qy[i]*f;
+          gx2[i]=qdx[i]*f; gy2[i]=qdy[i]*f; gz2[i]=qdz[i]*f;
+        }
+        Plotly.restyle("rayfig",{x:[fx],y:[fy]},[rays.length]);
+        Plotly.restyle("qfig",{x:[gx2],y:[gy2],z:[gz2]},[qrays.length]);
+        const op=0.1+0.75*slider.value/100;
+        Plotly.restyle("rayfig",{opacity:op},rays.map((_,i)=>i));
+        Plotly.restyle("qfig",{opacity:op},qrays.map((_,i)=>i));
+      });
+    });
+      }
+  draw();
+})();
+</script>
+<p><br></p><p>In contrast to Section 3's unembedding-predictive subspace, this is a slight weakening in what must be represented at this subspace, as the magnitude of the centered&nbsp;log-NTP&nbsp;is stored partly in the full resid_post's magnitude. Therefore, whatever writes this content into the subspace, the MLP included, is not required to write the centered&nbsp;log-NTP. It is required to write the RMS-scaled twice-sheared centered&nbsp;log-NTP, which is Section 5's subject. This all means that the model must encode the ingredients to form the centered log-NTP geometry -- the directions and the per-point scales (RMS) to set magnitudes. In addition, it seems like this prediction does not enforce that beliefs must be represented at resid_post! I try to connect this with the constrained belief paper in Section 8.</p><p>Some additional notes: Movement of resid_post orthogonal to the gamma-unembedding-predictive subspace leaves every dot product in the equation unchanged. Unlike Section 3, however, orthogonal movement is not perfectly free from affecting NTP, as doing so can change the magnitude of resid_post, which changes&nbsp;$\text{RMS}(\text{resid_post})$.&nbsp;</p>
+
+<p>Additionally, the spanning directions again sum to 0, $\sum_i \gamma\odot(u_i-\bar u) = \gamma\odot\sum_i(u_i-\bar u) = 0$, so the gamma-unembedding-predictive subspace has at most $V-1$ dimensions, and exactly $V-1$ under the same conditions as Section 3, provided $\gamma$ has no zero entries (so that the elementwise bend is invertible). As before, the directions are read directly off the model's trained weights, with no fitted probe.</p>
+
+<h2>5. Pullback of gamma-unembedding-predictive into mlp_out through the residual sum</h2>
+<p>resid_post is computed as a sum. It is the upper ⊕ in the diagram:</p>
+$$\text{resid_post} = \text{resid_mid} + \text{mlp_out}.$$
+<p>This stage introduces a new kind of freedom, and it is the main idea of this section. Section 4 forced the content of resid_post -- the whole sum. However, forcing the contents of a sum does not force the contents of its summands. resid_mid can carry any amount of the required content, as long as mlp_out supplies the rest. So from this stage of the architecture on, no single module's output is forced.</p>
+<p>To keep equations short, let&nbsp;$g_i = \gamma\odot(u_i-\bar u)$ for the spanning directions of the gamma-unembedding-predictive subspace. Starting from $\ell_i - \bar\ell$ and substituting the sum, continuing the chain:</p>
+$$\begin{aligned}
+\ell_i - \bar\ell &amp;= \frac{g_i\cdot \text{resid_post}}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big) &amp;&amp; [\text{conclusion of Section 4}]\\[2pt]
+&amp;= \frac{g_i\cdot \text{resid_mid} + g_i\cdot \text{mlp_out}}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big) &amp;&amp; [\text{substitute the sum; dot products distribute}]
+\end{aligned}$$
+<p><br></p>
+<h2>6. Pullback of gamma-unembedding-predictive into mlp_in through the MLP</h2>
+
+<h3>6.1 Continuing the algebra</h3><p>mlp_out is computed by passing mlp_in through the MLP. mlp_in is an RMSNorm'ed resid_mid. This RMSNorm is different from the RMSNorm of the model's readout stack because it learns a different gamma vector:</p>
+$$\text{mlp_in} \;=\; \gamma'\odot \frac{\text{resid_mid}}{\text{RMS}(\text{resid_mid})}, \qquad \text{mlp_out} \;=\; \mathrm{MLP}(\text{mlp_in}) \;=\; W_{\text{out}}\,\mathrm{gelu}\big(W_{\text{in}}\,\text{mlp_in} + b_{\text{in}}\big) + b_{\text{out}},$$
+<p>where $\gamma'$ is this RMSNorm's gamma.&nbsp;</p><p>Starting from $\ell_i - \bar\ell$ and substituting, continuing the chain:</p>
+$$\begin{aligned}
+\ell_i - \bar\ell &amp;= \frac{g_i\cdot \text{resid_mid} \,+\, g_i\cdot \text{mlp_out}}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big) &amp;&amp; [\text{conclusion of Section 5}]\\[2pt]
+&amp;= \frac{g_i\cdot \text{resid_mid} \,+\, g_i\cdot \mathrm{MLP}(\text{mlp_in})}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big) &amp;&amp; [\text{substitute the MLP}]\\[2pt]
+&amp;= \frac{g_i\cdot \text{resid_mid} \,+\, \big(W_{\text{out}}^\top g_i\big)\cdot \mathrm{gelu}\big(W_{\text{in}}\,\text{mlp_in} + b_{\text{in}}\big) \,+\, g_i\cdot b_{\text{out}}}{\text{RMS}(\text{resid_post})} + \big(b_i - \bar b\big). &amp;&amp; [\text{expand the MLP; move } W_{\text{out}} \text{ onto the direction}]
+\end{aligned}$$
+<p>Every previous section continued by rewriting its newest term as a linear map of the earlier object. Here, the newest term is a fixed direction dotted with $\mathrm{gelu}\big(W_{\text{in}}\,\text{mlp_in}+b_{\text{in}}\big)$, and the gelu is elementwise and nonlinear. These properties introduce a difficulty, which are described next.</p>
+<h3>6.2 The difficulty of gelu</h3>
+<p>Let&nbsp;$z = W_{\text{in}}\,\text{mlp_in} + b_{\text{in}}$ for the vector of pre-activations, right before gelu. This vector has one entry per neuron. gelu is a scalar function, applied to each entry separately: entry $z_j$ comes out as $\mathrm{gelu}(z_j)$, and no entry affects any other. The function is $\mathrm{gelu}(x) = x\,\Phi(x)$, where $\Phi$ is the standard normal CDF. For very negative inputs it outputs approximately $0$; for large positive inputs it outputs approximately $x$; in between, its graph bends smoothly from one behavior to the other:</p>
+$$\begin{array}{c|cccccc} x &amp; -3 &amp; -1 &amp; 0 &amp; 1 &amp; 2 &amp; 3\\\hline \mathrm{gelu}(x) &amp; -0.004 &amp; -0.159 &amp; 0 &amp; 0.841 &amp; 1.954 &amp; 2.996\\ \mathrm{gelu}'(x) &amp; -0.01 &amp; -0.08 &amp; 0.50 &amp; 1.08 &amp; 1.09 &amp; 1.01 \end{array}$$
+<p>The second row of this table shows the slope at each point. A linear function has one slope at every point. gelu's graph is bent, so its slope is different at different points -- essentially $0$ on the far left, essentially $1$ on the far right, and everything in between near the origin.</p>
+<p>Why do slopes matter? Suppose mlp_in changes by a very small vector $\delta$. Then $z$ changes by $W_{\text{in}}\,\delta$, and each entry of $\mathrm{gelu}(z)$ changes as: $\mathrm{gelu}\big(z_j + (W_{\text{in}}\,\delta)_j\big) \approx \mathrm{gelu}(z_j) + \mathrm{gelu}'(z_j)\,(W_{\text{in}}\,\delta)_j$. Stacking the entries across j, the change in $\mathrm{gelu}(z)$ is $\mathrm{gelu}'(z)\odot(W_{\text{in}}\,\delta)$, which means that the change in each entry by delta is scaled by that entry's current slope. This reveals that the change in gelu(z) is non-constant, and, specifically, depends on the slope at the particular value of z_j. <b>Therefore, a predictive subspace in mlp_in, if it exists, is not constant across token positions because the pre-image of z depends on what slope gelu(z) takes on, which depends on what z is, and in general z will differ across token positions.</b></p><p>Nevertheless, a predictive subspace can be computed per token position. If we substitute this change of $\mathrm{gelu}(z)$ into the algebra in 6.1, at one fixed token position, then:</p>
+$$\begin{aligned}
+\text{change in } \big(W_{\text{out}}^\top g_i\big)\cdot \mathrm{gelu}(z) &amp;= \big(W_{\text{out}}^\top g_i\big) \cdot \big(\mathrm{gelu}'(z)\odot (W_{\text{in}}\,\delta)\big) &amp;&amp; [\text{each entry moves at its own current slope}]\\[2pt]
+&amp;= \big(\mathrm{gelu}'(z)\odot W_{\text{out}}^\top g_i\big)\cdot \big(W_{\text{in}}\,\delta\big) &amp;&amp; [\text{elementwise product moves across the dot}]\\[2pt]
+&amp;= \Big(W_{\text{in}}^\top\big(\mathrm{gelu}'(z)\odot W_{\text{out}}^\top g_i\big)\Big)\cdot \delta. &amp;&amp; [\text{regroup: move } W_{\text{in}} \text{ onto the direction}]
+\end{aligned}$$
+<p>In the last line, $W_{\text{in}}$, $W_{\text{out}}$, and $g_i$ are linear maps, and at a fixed token position $z$ is a fixed vector, so $\mathrm{gelu}'(z)$ is a fixed list of numbers that is also linear. So altogether,&nbsp;$W_{\text{in}}^\top\big(\mathrm{gelu}'(z)\odot W_{\text{out}}^\top g_i\big)$ is a fixed direction of mlp_in, and across the tokens i, these directions span a predictive subspace in mlp_in. For the sake of verbosity, again in previous sections, the directions $(u_i - \bar u)$ and $\gamma\odot(u_i-\bar u)$ were linear, so they were the same directions at every token position, which is what allowed a single subspace to host every position's content at once, and is what all the point clouds in this document are pictures of.</p>
+<p>To clarify, Section 4 also involved a per-position quantity, the RMS, and absorbed it without losing the subspace -- so a per-position quantity is not by itself fatal. It is worth comparing this with gelu carefully. RMS is a single number at each position, and it divides all the readings at once. Dividing a vector by one number changes its length and nothing else: $(1,1)/2 = (0.5, 0.5)$, and $(1,1)/10 = (0.1, 0.1)$, and both of these lie on the same line through the origin as $(1,1)$. A subspace is a span -- a collection of lines through the origin -- and lines do not record length. So an operation that only changes lengths leaves every line where it was, and the subspace survives untouched. That is why Section 4's per-position RMS cost only a per-position scale on the contents, while the subspace itself remained one fixed object shared by all positions. The slope reweighting is a different kind of operation: not one number for the whole vector, but one number per entry.&nbsp;Multiplying the entries of a vector by different numbers changes which line it lies on. For example, take the direction $(1,1)$ over two entries. At a position where the slopes are $(1, 0)$, it becomes $(1\cdot 1,\ 0\cdot 1) = (1, 0)$: the horizontal line. At a position where the slopes are $(0, 1)$, it becomes $(0, 1)$: the vertical line. These are different lines, so $\mathrm{span}\{(1,0)\}$ and $\mathrm{span}\{(0,1)\}$ are different subspaces. One number times a vector can only stretch it; different numbers per entry can point it somewhere else.</p>
+
+<h3>6.3 Can a single predictive subspace be obtained? The union of all possible predictive subspaces</h3>
+<p>Section 6.2 left us with a definite predictive subspace at every position and no single subspace. Before giving anything up, there is a natural repair to attempt. The set of values a slope can take is known in advance: $\mathrm{gelu}'$ ranges over roughly $[-0.13,\ 1.13]$. So, compute the subspace for <i>every possible</i> slope setting, and take the <b>union</b> of all of them -- the span of every subspace the formula can produce. Whatever direction the write could ever respond to, under any input whatsoever, would be inside this union, and its complement would be safe to ignore. Therefore, it would be an analytic object again: weights and the slope range, no data.</p>
+<p>Unfortunately, this fails! Consider a simple case of two neurons, the write direction $(1,1)$, and $W_{\text{in}} = I$ so nothing else is in the way. Here the direction formula becomes $W_{\text{in}}^\top\big((s_1, s_2)\odot(1,1)\big) = (s_1, s_2)$. In words: pick slopes, and those slopes are themselves the direction. Every choice of slopes gives one line. When we sweep across slopes:</p>
+$$\begin{array}{ll} \text{slopes } (1,\,0) &amp; \text{the horizontal line}\\ \text{slopes } (1,\,0.25) &amp; \text{a line at } 14^\circ\\ \text{slopes } (1,\,0.5) &amp; \text{a line at } 27^\circ\\ \text{slopes } (1,\,1) &amp; \text{the diagonal}\\ \text{slopes } (0.5,\,1) &amp; \text{a line at } 63^\circ\\ \text{slopes } (0,\,1) &amp; \text{the vertical line} \end{array}$$
+<p>The lines sweep continuously across the whole quadrant. Their union is the entire plane. Nothing was ruled out.</p>
+<p>The full-size version fails the same way. Pick one neuron $j$. Give it slope $1$. Give every other neuron slope $0$. (This can happen: slopes are near $1$ for large pre-activations and near $0$ for very negative ones.) Now plug these slopes into the direction formula. The elementwise product kills every entry except entry $j$: $\mathrm{gelu}'(z)\odot W_{\text{out}}^\top g_i = \big(W_{\text{out}}^\top g_i\big)_j\, e_j$. Then $W_{\text{in}}^\top e_j$ is just row $j$ of $W_{\text{in}}$. So the direction is row $j$ of $W_{\text{in}}$, times a number. Conclusion: row $j$ of $W_{\text{in}}$ is in the union. This works for every neuron $j$ (as long as the write uses that neuron at all, and it essentially always does). So the union contains all $256$ rows of $W_{\text{in}}$. And $256$ vectors in a $64$-dimensional space span everything. The union is all of mlp_in space.</p>
+<p>Therefore,&nbsp;no direction of mlp_in is ignorable a priori. The weights permit any direction to matter at some conceivable input. So there is no analytic single subspace at mlp_in -- not by the direct route of 6.2, and not by the union repair. This is where the derivation genuinely ends. Everything after this point is empirical.</p>
+
+<h3>6.4 The context-driven union</h3>
+<p>It's possible that the context never actually touches all slopes of gelu, and therefore the implied union is not the entire space of mlp_in. We can define an empirical predictive subspace of mlp_in to be the span of the visited gelu slopes' implied subspaces, and call it the <b>MLP-gamma-unembedding-predictive subspace</b>. By construction, movement of mlp_in orthogonal to it does not change mlp_out.</p>
+<p>Each visited subspace's directions are $W_{\text{in}}^\top\big(\mathrm{gelu}'(z_t)\odot W_{\text{out}}^\top g_i\big)$, one direction per logit&nbsp;$i$. For one token position $t$, we stack its $V$ directions as the rows of a matrix $J_t$ -- a $V\times d$ matrix. This is one token position's matrix; the subscript says which position, and every visited position has its own. Stacking all of the visited $J_t$ on top of each other gives one tall matrix, which we call $J$ -- a $(T\cdot V)\times d$ matrix, with&nbsp;$T$ being the number of visited positions. The union of the visited subspaces is the span of $J$'s rows. The per-position matrix $J_t$ happens to be the Jacobian of mlp_out with respect to mlp_in at position $t$, which can be shown with the following proof. The Jacobian is the matrix of partial derivatives $\partial\,\Big(\big(W_{\text{out}}^\top g_i\big)\cdot \mathrm{gelu}(z)\Big)\,/\,\partial\,(\text{mlp_in})_k$, evaluated at position $t$'s activation:</p>
+$$\begin{aligned}
+\frac{\partial\,\Big(\big(W_{\text{out}}^\top g_i\big)\cdot \mathrm{gelu}(z)\Big)}{\partial\,(\text{mlp_in})_k} &amp;= \sum_j \big(W_{\text{out}}^\top g_i\big)_j\;\mathrm{gelu}'(z_j)\;\frac{\partial z_j}{\partial\,(\text{mlp_in})_k} &amp;&amp; [\text{chain rule; gelu is elementwise, so no cross terms}]\\[2pt]
+&amp;= \sum_j \big(W_{\text{out}}^\top g_i\big)_j\;\mathrm{gelu}'(z_j)\;(W_{\text{in}})_{jk} &amp;&amp; [z = W_{\text{in}}\,\text{mlp_in} + b_{\text{in}} \text{ is linear: } \partial z_j/\partial(\text{mlp_in})_k = (W_{\text{in}})_{jk}]\\[2pt]
+&amp;= \Big[\,W_{\text{in}}^\top\big(\mathrm{gelu}'(z)\odot W_{\text{out}}^\top g_i\big)\Big]_k. &amp;&amp; [\text{the same sum, regrouped}]
+\end{aligned}$$
+<p>An obvious next move is to take the simple union: take the span of $J$'s rows. This is slightly unprincipled because each position contributes $V-1$ dimensions. Different positions contribute <i>different</i> ones, because the gelu slopes change. Generic $(V{-}1)$-dimensional subspaces pile up: with $V-1=2$ and $d=64$, about $32$ positions already cover all of mlp_in space -- and there are many more possible token positions in a sequence. So the span of the stack is everything, once again.</p>
+<p>The root problem is that a union is all-or-nothing per direction. It asks: was this direction used at least once, at least a little? With many positions, the answer is basically yes for every direction. The question that separates directions is: how <i>much</i> was each direction used? That needs a magnitude per direction, not a yes/no. The magnitude-aware version of the span is the SVD of $J$: the singular directions of $J$ are the union's directions, and each singular value says how much that direction was used. The subspace we want is the span of the top singular directions. In practice, though, we never build the tall matrix $J$. The matrix $M = J^\top J/T$ below has the same eigendirections as $J$'s singular directions, with eigenvalues equal to the squared singular values over $T$, and unlike $J$ it can be accumulated position by position in constant memory: read a batch, add its $J_t^\top J_t$, discard.&nbsp;</p><p>The span of the top eigendirections of the SVD of J that capture nearly all of the variance of J are the MLP-gamma-unembedding-predictive subspace.</p>
+
+<h2>7. Summary</h2>
+
+<table>
+<tbody><tr><th>site</th><th>predictive subspace</th><th>dim</th><th>constraint type</th><th>content</th></tr>
+<tr><td>logits</td><td>complement of $\mathbf 1$</td><td>$V-1$</td><td>content (exact)</td><td>centered log-NTP</td></tr>
+<tr><td>resid_final</td><td>span$\{u_i-\bar u\}$&nbsp;</td><td>$V-1$</td><td>content up to shear</td><td>sheared, centered log-NTP</td></tr>
+<tr><td>resid_post</td><td>span$\{\gamma\odot(u_i-\bar u)\}$<br></td><td>$V-1$</td><td>content up to two shears and up to magnitude</td><td>the directions of twice-sheared, centered log-NTP (magnitudes are encoded as resid_post's magnitude)</td></tr>
+<tr><td>mlp_out<br></td><td>same subspace as in resid_post</td><td>$V-1$</td><td>no longer forced</td><td><br></td></tr>
+<tr><td>mlp_in</td><td>top eigendirections of SVD(J)<br></td><td>~15</td><td>no longer forced</td><td><br></td></tr>
+</tbody></table>
+
+</div><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg><svg id="js-plotly-tester" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="position: absolute; left: -10000px; top: -10000px; width: 9000px; height: 9000px; z-index: 1;"><path class="js-reference-point" d="M0,0H1V1H0Z" style="stroke-width: 0; fill: black;"></path></svg>
+
+
+
+
+
+<script>
+(function(){
+  const REPO = "andrewjlee0/pullback-explainer";
+  function shortHash(s){ let x=0; for(let i=0;i<s.length;i++){ x=(x*31 + s.charCodeAt(i))>>>0; } return x.toString(36); }
+  function norm(t){ return (t||"").replace(/\s+/g," ").trim().slice(0,80); }
+
+  function init(){
+    const blocks = Array.from(document.querySelectorAll("p, h2, h3"))
+      .filter(el => norm(el.textContent).length > 8 && !el.closest("[data-nocomment]"));
+    const seen = {};
+    blocks.forEach(el => {
+      let id = "c" + shortHash(norm(el.textContent));
+      if (seen[id] !== undefined) { seen[id]++; id = id + "-" + seen[id]; } else seen[id] = 0;
+      el.dataset.cid = id;
+      el.style.position = "relative";
+      el.addEventListener("mouseenter", () => btn.show(el));
+    });
+
+    // one floating comment button, reused
+    const b = document.createElement("div");
+    b.textContent = "\u{1F4AC}";
+    b.title = "Comment on this paragraph (opens GitHub)";
+    b.style.cssText = "position:absolute;display:none;cursor:pointer;font-size:15px;z-index:9999;padding:2px 4px;border-radius:6px;background:#fff;border:1px solid #d5dae2;box-shadow:0 1px 3px rgba(0,0,0,.12)";
+    document.body.appendChild(b);
+    let cur = null;
+    const btn = { show(el){ cur = el; const r = el.getBoundingClientRect();
+        b.style.left = (window.scrollX + r.left - 34) + "px";
+        b.style.top  = (window.scrollY + r.top) + "px";
+        b.style.display = "block"; } };
+    document.addEventListener("scroll", () => { b.style.display = "none"; }, {passive:true});
+    b.onclick = () => {
+      if (!cur) return;
+      const id = cur.dataset.cid;
+      const quote = norm(cur.textContent).slice(0, 120);
+      const sel = (window.getSelection()||"").toString().trim();
+      const quoted = sel || quote;
+      const title = encodeURIComponent("re: “" + quoted.slice(0,60) + (quoted.length>60?"…":"") + "”");
+      const body = encodeURIComponent("> " + quoted + "\n\n— your comment here —\n\n<!-- anchor:" + id + " -->");
+      window.open("https://github.com/" + REPO + "/issues/new?title=" + title + "&body=" + body, "_blank");
+    };
+    loadComments();
+  }
+
+  async function loadComments(){
+    let issues = [];
+    try{
+      const r = await fetch("https://api.github.com/repos/" + REPO + "/issues?state=all&per_page=100");
+      if (r.ok) issues = await r.json();
+    }catch(e){ return; }
+    const byAnchor = {};
+    for (const is of issues){
+      const m = (is.body||"").match(/anchor:(c[a-z0-9-]+)/);
+      if (!m) continue;
+      (byAnchor[m[1]] = byAnchor[m[1]] || []).push(is);
+    }
+    for (const [id, list] of Object.entries(byAnchor)){
+      const el = document.querySelector('[data-cid="' + id + '"]');
+      if (!el) continue;
+      const n = list.reduce((a,is)=>a+1+(is.comments||0),0);
+      const tag = document.createElement("a");
+      tag.textContent = "\u{1F4AC}" + n;
+      tag.title = list.map(is=>is.title).join("\n");
+      tag.href = list.length===1 ? list[0].html_url : ("https://github.com/" + REPO + "/issues");
+      tag.target = "_blank";
+      tag.style.cssText = "margin-left:8px;font-size:12px;text-decoration:none;color:#2b6cb0;border:1px solid #cfe0f5;border-radius:10px;padding:0 7px;background:#eef4fb;vertical-align:middle";
+      el.appendChild(tag);
+    }
+  }
+
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+
+</body></html>
