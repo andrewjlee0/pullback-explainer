@@ -32,9 +32,7 @@ MathJax = {tex: {inlineMath: [['$', '$']], displayMath: [['$$','$$']]}, svg: {fo
 </style></head><body><div class="wrap">
 
 
-<div data-nocomment style="max-width:820px;margin:6px auto 14px;padding:9px 14px;border:1px solid #dbe3ee;border-radius:8px;background:#f6f9fd;font-size:13px;color:#41506b">
-To comment: hover any paragraph and click the 💬 button in the margin (select text first to quote a specific sentence). It opens a prefilled GitHub comment — sign in with your GitHub account and submit. Existing comments appear as 💬 badges next to paragraphs; click a badge to read and reply.
-</div>
+<div data-nocomment style="max-width:820px;margin:6px auto 14px;padding:9px 14px;border:1px solid #dbe3ee;border-radius:8px;background:#f6f9fd;font-size:13px;color:#41506b">To comment: select any text, then click the &ldquo;Annotate&rdquo; button that pops up. The first time, it will ask you to create a free Hypothesis account (takes ~30 seconds). Your comment saves and appears right here on the page, anchored to the text you selected; replies are threaded in the sidebar on the right.</div>
 <h1>To what extent can we predict representational content from the architecture of the transformer? Or, to what extent does the transformer architecture constrain what representations must be learned?</h1><div>Andrew Jun Lee</div>
 
 
@@ -520,77 +518,7 @@ $$\begin{aligned}
 
 
 
-<script>
-(function(){
-  const REPO = "andrewjlee0/pullback-explainer";
-  function shortHash(s){ let x=0; for(let i=0;i<s.length;i++){ x=(x*31 + s.charCodeAt(i))>>>0; } return x.toString(36); }
-  function norm(t){ return (t||"").replace(/\s+/g," ").trim().slice(0,80); }
 
-  function init(){
-    const blocks = Array.from(document.querySelectorAll("p, h2, h3"))
-      .filter(el => norm(el.textContent).length > 8 && !el.closest("[data-nocomment]"));
-    const seen = {};
-    blocks.forEach(el => {
-      let id = "c" + shortHash(norm(el.textContent));
-      if (seen[id] !== undefined) { seen[id]++; id = id + "-" + seen[id]; } else seen[id] = 0;
-      el.dataset.cid = id;
-      el.style.position = "relative";
-      el.addEventListener("mouseenter", () => btn.show(el));
-    });
 
-    // one floating comment button, reused
-    const b = document.createElement("div");
-    b.textContent = "\u{1F4AC}";
-    b.title = "Comment on this paragraph (opens GitHub)";
-    b.style.cssText = "position:absolute;display:none;cursor:pointer;font-size:15px;z-index:9999;padding:2px 4px;border-radius:6px;background:#fff;border:1px solid #d5dae2;box-shadow:0 1px 3px rgba(0,0,0,.12)";
-    document.body.appendChild(b);
-    let cur = null;
-    const btn = { show(el){ cur = el; const r = el.getBoundingClientRect();
-        b.style.left = (window.scrollX + r.left - 34) + "px";
-        b.style.top  = (window.scrollY + r.top) + "px";
-        b.style.display = "block"; } };
-    document.addEventListener("scroll", () => { b.style.display = "none"; }, {passive:true});
-    b.onclick = () => {
-      if (!cur) return;
-      const id = cur.dataset.cid;
-      const quote = norm(cur.textContent).slice(0, 120);
-      const sel = (window.getSelection()||"").toString().trim();
-      const quoted = sel || quote;
-      const title = encodeURIComponent("re: “" + quoted.slice(0,60) + (quoted.length>60?"…":"") + "”");
-      const body = encodeURIComponent("> " + quoted + "\n\n— your comment here —\n\n<!-- anchor:" + id + " -->");
-      window.open("https://github.com/" + REPO + "/issues/new?title=" + title + "&body=" + body, "_blank");
-    };
-    loadComments();
-  }
-
-  async function loadComments(){
-    let issues = [];
-    try{
-      const r = await fetch("https://api.github.com/repos/" + REPO + "/issues?state=all&per_page=100");
-      if (r.ok) issues = await r.json();
-    }catch(e){ return; }
-    const byAnchor = {};
-    for (const is of issues){
-      const m = (is.body||"").match(/anchor:(c[a-z0-9-]+)/);
-      if (!m) continue;
-      (byAnchor[m[1]] = byAnchor[m[1]] || []).push(is);
-    }
-    for (const [id, list] of Object.entries(byAnchor)){
-      const el = document.querySelector('[data-cid="' + id + '"]');
-      if (!el) continue;
-      const n = list.reduce((a,is)=>a+1+(is.comments||0),0);
-      const tag = document.createElement("a");
-      tag.textContent = "\u{1F4AC}" + n;
-      tag.title = list.map(is=>is.title).join("\n");
-      tag.href = list.length===1 ? list[0].html_url : ("https://github.com/" + REPO + "/issues");
-      tag.target = "_blank";
-      tag.style.cssText = "margin-left:8px;font-size:12px;text-decoration:none;color:#2b6cb0;border:1px solid #cfe0f5;border-radius:10px;padding:0 7px;background:#eef4fb;vertical-align:middle";
-      el.appendChild(tag);
-    }
-  }
-
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
-})();
-</script>
-
+<script src="https://hypothes.is/embed.js" async></script>
 </body></html>
